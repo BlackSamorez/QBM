@@ -24,7 +24,7 @@ class QBM:
 
 
 a = QBM(10,10)
-
+print('0')
 
 
 
