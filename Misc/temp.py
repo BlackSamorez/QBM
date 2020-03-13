@@ -1,10 +1,13 @@
 import pandas as pd
 import idx2numpy
 import numpy as np
+from math import *
 
-labels = idx2numpy.convert_from_file('../MNIST/t10k-images.idx3-ubyte')
-
-print(labels.shape)
+class QBM:
+	def __init__(self, hidlen, vislen):
+		self.hidlen = hidlen
+		self.vislen = vislen
+		
 
 
 
