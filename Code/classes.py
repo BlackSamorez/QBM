@@ -75,9 +75,16 @@ class QBM:
 	def fix_v(self, i, val): #fix visible layer qubit
 		self.bqm.fix_variable(self.vind[i], val)
 
-	def fix_vis(self): #fix image into qbm
+	def fix_image(self): #fix image into bqm
 		for i in range(self.vislen - 10):
 			self.bqm.fix_variable(self.vind[i], self.image[self.curve[i][0]][self.curve[i][1]])
+
+	def fix_output(self, n): #fix output (0-9)
+		for i in range(10):
+			if i == n:
+				self.bqm.fix_variable(self.vind[-(10 - i)], 1)
+			else:
+				self.bqm.fix_variable(self.vind[-(10 - i)], 0)
 
 
 	def fetch_data(self):	#reading response
