@@ -1,2 +1,10 @@
-{'h0': True, 'h1': False} -1.0 60.0
-{'h0': False, 'h1': True} -1.0 40.0
+{'h0': True, 'h1': True} -4.0 1.0
+{'h0': True, 'h1': True} -4.0 1.0
+{'h0': True, 'h1': True} -4.0 1.0
+{'h0': True, 'h1': True} -4.0 1.0
+{'h0': True, 'h1': True} -4.0 1.0
+{'h0': True, 'h1': True} -4.0 1.0
+{'h0': True, 'h1': True} -4.0 1.0
+{'h0': True, 'h1': True} -4.0 1.0
+{'h0': True, 'h1': True} -4.0 1.0
+{'h0': True, 'h1': True} -4.0 1.0
