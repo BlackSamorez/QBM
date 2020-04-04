@@ -6,7 +6,7 @@ from random import randrange as rnd,choice
 
 def calc(number):
 	curve = idx2numpy.convert_from_file('../MNIST/curve')
-	images = idx2numpy.convert_from_file("../MNIST/new_train_images")
+	images = idx2numpy.convert_from_file("../MNIST/spin_train_images")
 	labels = idx2numpy.convert_from_file("../MNIST/train_labels")
 	double = np.zeros((410, 410), dtype = np.float_)
 	for n in range(10000 * number, 10000 * (number + 1)):

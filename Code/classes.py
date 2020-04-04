@@ -21,9 +21,10 @@ class QBM:
 		self.vind = ['v' + str(i) for i in range(self.vislen)]
 		self.ind = self.hind + self.vind
 
+		self.np_coef = np.zeros((self.vislen + self.hidlen, self.vislen + self.hidlen), dtype = np.float_)
 		self.coef = {x: {y: 0 for y in self.ind} for x in self.ind}	#coefs, question and bqm
 		self.Q = {(i, j): self.coef[i][j] for i in self.ind for j in self.ind}
-		self.bqm = dimod.BinaryQuadraticModel(self.Q, 'BINARY')
+		self.bqm = dimod.BinaryQuadraticModel(self.Q, 'SPIN')
 
 		self.response = 0	#response and data from it
 		self.datalen = 0
@@ -32,14 +33,15 @@ class QBM:
 		self.datan = 0
 		self.prob_vec = []
 
-		dt = np.dtype(np.bool)	#image from set and its relation to vis layer coefs (curve)
-		self.image = np.empty((20, 20), dtype = dt)
-		d = np.dtype(np.uint16)
-		self.curve = idx2numpy.convert_from_file('../MNIST/curve')
+		self.image = []	#images from dataset
+		self.images = []
 		self.label = 0
+		self.labels = []
 
 		self.single_unfixed = []
 		self.double_unfixed = []
+		self.single_fixed = []
+		self.double_fixed = []
 
 
 	def randomise_coefs(self):	#for premature testing
@@ -47,15 +49,17 @@ class QBM:
 			for j in range(self.vislen + self.hidlen):
 				self.coef[self.ind[i]][self.ind[j]] = rnd(0,99) / 100
 
-
-
-	def read_image(self, n, train = True):
+	def read_images(self, train = True):
 		if train:
-			self.image = idx2numpy.convert_from_file('../MNIST/new_train_images')[n]
-			self.label = idx2numpy.convert_from_file('../MNIST/train_labels')[n]
+			self.images = idx2numpy.convert_from_file('../MNIST/curved_train_images')
+			self.labels = idx2numpy.convert_from_file('../MNIST/train_labels')
 		else:
-			self.image = idx2numpy.convert_from_file('../MNIST/new_test_images')[n]
-			self.label = idx2numpy.convert_from_file('../MNIST/test_labels')[n]
+			self.images = idx2numpy.convert_from_file('../MNIST/curved_test_images')
+			self.labels = idx2numpy.convert_from_file('../MNIST/test_labels')
+
+	def read_image(self, n):
+		self.image = self.images[n]
+		self.label = self.labels[n]
 
 
 	def make_q(self): #question from coefs
@@ -63,7 +67,7 @@ class QBM:
 
 	def make_bqm(self): #bqm from coefs
 		self.Q = {(i, j): self.coef[i][j] for i in self.ind for j in self.ind}
-		self.bqm = dimod.BinaryQuadraticModel(self.Q, 'BINARY')
+		self.bqm = dimod.BinaryQuadraticModel(self.Q, 'SPIN')
 
 
 	def run(self, n = 1): #run on dwave
@@ -88,8 +92,8 @@ class QBM:
 		self.bqm.fix_variable(self.vind[i], val)
 
 	def fix_image(self): #fix image into bqm
-		for i in range(self.vislen - 10):
-			self.bqm.fix_variable(self.vind[i], self.image[self.curve[i][0]][self.curve[i][1]])
+		for i in range(400):
+			self.bqm.fix_variable(self.vind[i], self.image[i])
 
 	def fix_output(self, n): #fix output (0-9)
 		for i in range(10):
@@ -144,6 +148,50 @@ class QBM:
 				if i == j:
 					self.single_unfixed[i] = self.double_unfixed[i][j]
 
+	def calc_sigma_v(self, v):
+		state = np.zeros((self.vislen + self.hidlen), dtype = np.float_)
+		for i in range(len(v)):
+			state[i] = v[i]
+		b = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
+		for i in range(self.vislen + self.hidlen):
+			b[i] = self.np_coef[i][i]
+		b_eff = b + self.np_coef.dot(state)
+		sigma_v = np.tanh(b_eff)
+		return sigma_v
+
+	def calc_single_fixed(self):
+		self.single_fixed = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
+		schet = 0
+		for v in self.images:
+			print(schet)
+			schet += 1
+			self.single_fixed += self.calc_sigma_v(v)
+		self.single_fixed = self.single_fixed / len(self.images)
+
+	def calc_double_fixed(self):
+		self.double_fixed = np.zeros((410, self.hidlen), dtype = np.float_)
+		#hid x hid is already 0
+		#vis x vis:
+		'''from_data = idx2numpy.convert_from_file('../MNIST/double')
+		for i in range(self.vislen):
+			for j in range(self.vislen):
+				self.double_fixed[self.hidlen + i][self.hidlen + j] = from_data[i][j]'''
+		#vis x hid
+		schet = 0
+		for v in self.images:
+			vp = np.ones(410, dtype = np.float_) * -1
+			for i in range(400):
+				vp[i] = v[i]
+			vp[400 + self.labels[schet]] = 1
+			print(schet)
+			schet += 1
+			sigma_v = self.calc_sigma_v(v)
+			for i in range(410):
+				for j in range(self.hidlen):
+					self.double_fixed[i][j] +=  vp[i] * sigma_v[j]
+
+
+
 
 
 
@@ -151,12 +199,18 @@ class QBM:
 
 
 def test():
-	a = QBM(2, 0, True)
-	a.coef['h0']['h0'] = -1
-	a.coef['h1']['h1'] = -1
-	a.coef['h0']['h1'] = 2
+	a = QBM(100, 410, True)
+	for i in range(510):
+		for j in range(510):
+			a.np_coef[i][j] = rnd(1, 100)
+			if i > j:
+				a.np_coef[i][j] = 0
+	for i in range(100):
+		for j in range(100):
+			if i != j:
+				a.np_coef[i][j] = 0
+	a.read_images()
 	return a
-
 
 
 
