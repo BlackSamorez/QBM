@@ -5,6 +5,7 @@ from math import *
 from dwave.system import DWaveSampler, EmbeddingComposite
 import json
 import dimod
+from random import randrange as rnd,choice
 
 
 
@@ -37,9 +38,16 @@ class QBM:
 		self.curve = idx2numpy.convert_from_file('../MNIST/curve')
 		self.label = 0
 
+		self.single_unfixed = []
+		self.double_unfixed = []
 
-	def read_coef(self, n = 0, filename = 'test'): #not done yet
-		filename = '../MNIST' + filename
+
+	def randomise_coefs(self):	#for premature testing
+		for i in range(self.vislen + self.hidlen):
+			for j in range(self.vislen + self.hidlen):
+				self.coef[self.ind[i]][self.ind[j]] = rnd(0,99) / 100
+
+
 
 	def read_image(self, n, train = True):
 		if train:
@@ -61,13 +69,14 @@ class QBM:
 	def run(self, n = 1): #run on dwave
 		if not self.test:
 			self.datan = n
-			self.Q = {(i, j): self.coef[i][j] for i in self.ind for j in self.ind}
+			self.make_q()
 			self.response = self.sampler.sample_qubo(self.Q, num_reads=n)
 			#self.response = self.response.data(fields = ['sample', 'num_occurrences'], sorted_by = 'sample')
 		else:
 			print("it's a test, can't run on dwave")
 
 	def sim_run(self, n = 100): #run locally (simulation)
+		self.make_bqm()
 		self.datan = n
 		self.response = dimod.SimulatedAnnealingSampler().sample(self.bqm, num_reads = self.datan)
 
@@ -104,7 +113,7 @@ class QBM:
 				self.data[i][j] = datum.sample[self.ind[j]]
 			i += 1
 
-	def save_data(self, filename = "test"):
+	def save_data(self, filename = "test"): #save data as idx
 		filename1 = "../Data/" + filename + ".samples"
 		filename2 = "../Data/" + filename + ".probs"
 		filename3 = "../Data/" + filename + ".lens"
@@ -116,6 +125,29 @@ class QBM:
 		idx2numpy.convert_to_file(filename1, self.data)
 		idx2numpy.convert_to_file(filename2, self.data_prob)
 		idx2numpy.convert_to_file(filename3, lens)
+
+
+	def calc_single_unfixed(self):
+		self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
+		responses = self.data.transpose()
+
+		self.single_unfixed = responses.dot(self.data_prob)
+
+	def calc_double_unfixed(self):
+		self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
+		self.double_unfixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
+
+		for i in range(self.hidlen + self.vislen):
+			for j in range(self.hidlen + self.vislen):
+				for k in range(self.datalen):
+					self.double_unfixed[i][j] += self.data_prob[k] * self.data[k][i] * self.data[k][j]
+				if i == j:
+					self.single_unfixed[i] = self.double_unfixed[i][j]
+
+
+
+
+
 
 
 def test():
