@@ -172,10 +172,10 @@ class QBM:
 		self.double_fixed = np.zeros((410, self.hidlen), dtype = np.float_)
 		#hid x hid is already 0
 		#vis x vis:
-		'''from_data = idx2numpy.convert_from_file('../MNIST/double')
+		from_data = idx2numpy.convert_from_file('../MNIST/double')
 		for i in range(self.vislen):
 			for j in range(self.vislen):
-				self.double_fixed[self.hidlen + i][self.hidlen + j] = from_data[i][j]'''
+				self.double_fixed[self.hidlen + i][self.hidlen + j] = from_data[i][j]
 		#vis x hid
 		schet = 0
 		for v in self.images:
