@@ -2,9 +2,12 @@ import numpy as np
 from PIL import Image
 import idx2numpy
 import os
+from random import randrange as rnd,choice
 
-def vis_new(n = 0):
-	ndarr = idx2numpy.convert_from_file("../MNIST/new_test_images")
+def vis_test(n = -1):
+	if n == -1:
+		n = rnd(0, 1000)
+	ndarr = idx2numpy.convert_from_file("../MNIST/spin_test_images")
 	pic = np.empty( (400, 400), dtype = np.uint8)
 	labels = idx2numpy.convert_from_file("../MNIST/test_labels")
 
@@ -23,10 +26,12 @@ def vis_new(n = 0):
 	print(labels[n])
 	os.system('eog ../Misc/new_image.png')
 
-def vis(n = 0):
-	ndarr = idx2numpy.convert_from_file("../MNIST/test_images")
+def vis_train(n = -1):
+	if n == -1:
+		n = rnd(0, 1000)
+	ndarr = idx2numpy.convert_from_file("../MNIST/spin_train_images")
 	pic = np.empty( (560, 560), dtype = np.uint8)
-	labels = idx2numpy.convert_from_file("../MNIST/test_labels")
+	labels = idx2numpy.convert_from_file("../MNIST/train_labels")
 
 	for i in range(28):
 		for j in range(28):

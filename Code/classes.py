@@ -5,7 +5,7 @@ from math import *
 from dwave.system import DWaveSampler, EmbeddingComposite
 import json
 import dimod
-from random import randrange as rnd,choice
+import random
 
 
 
@@ -17,6 +17,7 @@ class QBM:
 
 		self.hidlen = hidlen	#handling indexes
 		self.vislen = vislen
+		self.imagesize = vislen - 10
 		self.hind = ['h' + str(i) for i in range(self.hidlen)]
 		self.vind = ['v' + str(i) for i in range(self.vislen)]
 		self.ind = self.hind + self.vind
@@ -37,6 +38,7 @@ class QBM:
 		self.images = []
 		self.label = 0
 		self.labels = []
+		self.chosen_images = []
 
 		self.single_unfixed = []
 		self.double_unfixed = []
@@ -47,14 +49,14 @@ class QBM:
 	def randomise_coefs(self):	#for premature testing
 		for i in range(self.vislen + self.hidlen):
 			for j in range(self.vislen + self.hidlen):
-				self.coef[self.ind[i]][self.ind[j]] = rnd(0,99) / 100
+				self.coef[self.ind[i]][self.ind[j]] = random.randrange(100) / 100
 
 	def read_images(self, train = True):
 		if train:
-			self.images = idx2numpy.convert_from_file('../MNIST/curved_train_images')
+			self.images = idx2numpy.convert_from_file('../MNIST/spin_train_images')
 			self.labels = idx2numpy.convert_from_file('../MNIST/train_labels')
 		else:
-			self.images = idx2numpy.convert_from_file('../MNIST/curved_test_images')
+			self.images = idx2numpy.convert_from_file('../MNIST/spin_test_images')
 			self.labels = idx2numpy.convert_from_file('../MNIST/test_labels')
 
 	def read_image(self, n):
@@ -131,11 +133,11 @@ class QBM:
 		idx2numpy.convert_to_file(filename3, lens)
 
 
-	def calc_single_unfixed(self):
+	'''def calc_single_unfixed(self):
 		self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
 		responses = self.data.transpose()
 
-		self.single_unfixed = responses.dot(self.data_prob)
+		self.single_unfixed = responses.dot(self.data_prob)'''
 
 	def calc_double_unfixed(self):
 		self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
@@ -147,6 +149,11 @@ class QBM:
 					self.double_unfixed[i][j] += self.data_prob[k] * self.data[k][i] * self.data[k][j]
 				if i == j:
 					self.single_unfixed[i] = self.double_unfixed[i][j]
+
+	def choose_images(self, n = 10000):
+		numbers = random.sample(range(60000), n)
+		for i in numbers:
+			self.chosen_images += [self.images[i]]	
 
 	def calc_sigma_v(self, v):
 		state = np.zeros((self.vislen + self.hidlen), dtype = np.float_)
@@ -162,15 +169,16 @@ class QBM:
 	def calc_single_fixed(self):
 		self.single_fixed = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
 		schet = 0
-		for v in self.images:
+		for v in self.chosen_images:
 			print(schet)
 			schet += 1
 			self.single_fixed += self.calc_sigma_v(v)
-		self.single_fixed = self.single_fixed / len(self.images)
+		self.single_fixed = self.single_fixed / len(self.chosen_images)
 
 	def calc_double_fixed(self):
-		self.double_fixed = np.zeros((410, self.hidlen), dtype = np.float_)
-		#hid x hid is already 0
+		self.choose_images()
+		self.double_fixed = np.zeros((self.vislen, self.hidlen), dtype = np.float_)
+		#hid x hid:
 		#vis x vis:
 		from_data = idx2numpy.convert_from_file('../MNIST/double')
 		for i in range(self.vislen):
@@ -178,17 +186,21 @@ class QBM:
 				self.double_fixed[self.hidlen + i][self.hidlen + j] = from_data[i][j]
 		#vis x hid
 		schet = 0
-		for v in self.images:
-			vp = np.ones(410, dtype = np.float_) * -1
-			for i in range(400):
+		for v in self.chosen_images:
+			vp = np.ones(self.vislen, dtype = np.float_) * -1
+			for i in range(self.imagesize):
 				vp[i] = v[i]
 			vp[400 + self.labels[schet]] = 1
 			print(schet)
 			schet += 1
 			sigma_v = self.calc_sigma_v(v)
-			for i in range(410):
-				for j in range(self.hidlen):
-					self.double_fixed[i][j] +=  vp[i] * sigma_v[j]
+			for i in range(self.hidlen):
+				for j in range(self.vislen):
+					self.double_fixed[i][j + self.hidlen] +=  vp[i] * sigma_v[j]
+
+		self.calc_single_fixed()
+		for i in range(self.hidlen + self .vislen):
+			self.double_fixed[i][i] = single_fixed[i]
 
 
 
@@ -198,15 +210,15 @@ class QBM:
 
 
 
-def test():
-	a = QBM(100, 410, True)
-	for i in range(510):
-		for j in range(510):
-			a.np_coef[i][j] = rnd(1, 100)
+def test(a, b):
+	a = QBM(a, b, True)
+	for i in range(a + b):
+		for j in range(a + b):
+			a.np_coef[i][j] = random.sample(range(100), 1) / 100
 			if i > j:
 				a.np_coef[i][j] = 0
-	for i in range(100):
-		for j in range(100):
+	for i in range(b):
+		for j in range(b):
 			if i != j:
 				a.np_coef[i][j] = 0
 	a.read_images()
