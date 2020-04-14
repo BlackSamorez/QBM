@@ -14,6 +14,8 @@ class QBM:
 		self.test = test
 		if not self.test:
 			self.sampler = EmbeddingComposite(DWaveSampler())	#accessing dwave
+		self.t_step = 100
+		self.stepsize = 0.01
 
 		self.hidlen = hidlen	#handling indexes
 		self.vislen = vislen
@@ -22,8 +24,7 @@ class QBM:
 		self.vind = ['v' + str(i) for i in range(self.vislen)]
 		self.ind = self.hind + self.vind
 
-		self.np_coef = np.zeros((self.vislen + self.hidlen, self.vislen + self.hidlen), dtype = np.float_)
-		self.coef = {x: {y: 0 for y in self.ind} for x in self.ind}	#coefs, question and bqm
+		self.coef = np.zeros((self.vislen + self.hidlen, self.vislen + self.hidlen), dtype = np.float_)
 		self.Q = {(i, j): self.coef[i][j] for i in self.ind for j in self.ind}
 		self.bqm = dimod.BinaryQuadraticModel(self.Q, 'SPIN')
 
@@ -44,6 +45,7 @@ class QBM:
 		self.double_unfixed = []
 		self.single_fixed = []
 		self.double_fixed = []
+		self.delta = []
 
 
 	def randomise_coefs(self):	#for premature testing
@@ -63,12 +65,20 @@ class QBM:
 		self.image = self.images[n]
 		self.label = self.labels[n]
 
+	def read_coef(self, filename = "last"):
+		filename = "../Data/coef/" + filename + ".coef"
+		self.coef = idx2numpy.convert_from_file(filename)
+
+	def save_coef(self, filename = "last"):
+		filename = "../Data/coef/" + filename + ".coef"
+		idx2numpy.convert_to_file(filename, self.coef)
+
 
 	def make_q(self): #question from coefs
 		self.Q = {(i, j): self.coef[i][j] for i in self.ind for j in self.ind}
 
 	def make_bqm(self): #bqm from coefs
-		self.Q = {(i, j): self.coef[i][j] for i in self.ind for j in self.ind}
+		self.make_q()
 		self.bqm = dimod.BinaryQuadraticModel(self.Q, 'SPIN')
 
 
@@ -120,9 +130,9 @@ class QBM:
 			i += 1
 
 	def save_data(self, filename = "test"): #save data as idx
-		filename1 = "../Data/" + filename + ".samples"
-		filename2 = "../Data/" + filename + ".probs"
-		filename3 = "../Data/" + filename + ".lens"
+		filename1 = "../Data/answer/" + filename + ".samples"
+		filename2 = "../Data/answer/" + filename + ".probs"
+		filename3 = "../Data/answer/" + filename + ".lens"
 
 		lens = np.zeros((2), dtype = "int16")
 		lens[0] = self.hidlen
@@ -161,8 +171,8 @@ class QBM:
 			state[i] = v[i]
 		b = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
 		for i in range(self.vislen + self.hidlen):
-			b[i] = self.np_coef[i][i]
-		b_eff = b + self.np_coef.dot(state)
+			b[i] = self.coef[i][i]
+		b_eff = b + self.coef.dot(state)
 		sigma_v = np.tanh(b_eff)
 		return sigma_v
 
@@ -202,25 +212,41 @@ class QBM:
 		for i in range(self.hidlen + self .vislen):
 			self.double_fixed[i][i] = single_fixed[i]
 
+	def change_coef(self):
+		self.delta = (self.double_fixed - self.double_unfixed) * self.stepsize
+		self.coef = self.coef + self.delta
 
 
+	def make_step(self, step):
+		self.read_coef(str(step))
+		self.make_bqm()
+		self.run(self.t_step)
+		self.fetch_data()
+		self.save_data(str(step))
+		self.calc_double_unfixed()
+		self.calc_double_fixed()
+		self.calc_delta()
+		self.save_coef(str(step))
 
-
-
-
-
+	def make_steps(self, n):
+		starting_step = idx2numpy.convert_from_file("../Data/current_step")
+		for i in range(n):
+			step = starting_step[0] + i
+			self.make_step(step)
+		starting_step[0] += n
+		idx2numpy.convert_to_file("../Data/current_step", starting_step)
 
 def test(a, b):
 	a = QBM(a, b, True)
 	for i in range(a + b):
 		for j in range(a + b):
-			a.np_coef[i][j] = random.sample(range(100), 1) / 100
+			a.coef[i][j] = random.sample(range(100), 1) / 100
 			if i > j:
-				a.np_coef[i][j] = 0
+				a.coef[i][j] = 0
 	for i in range(b):
 		for j in range(b):
 			if i != j:
-				a.np_coef[i][j] = 0
+				a.coef[i][j] = 0
 	a.read_images()
 	return a
 
