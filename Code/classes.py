@@ -2,11 +2,10 @@ import pandas as pd
 import idx2numpy
 import numpy as np
 from math import *
-from dwave.system import DWaveSampler, EmbeddingComposite
+from dwave.system import LeapHybridSampler
 import json
 import dimod
 import random
-from hybrid.reference import KerberosSampler
 
 
 
@@ -15,8 +14,8 @@ class QBM:
     def __init__(self, hidlen, vislen, test = False):
         self.test = test
         if not self.test:
-            self.sampler = KerberosSampler()    #accessing dwave
-        self.t_step = 100
+            self.sampler = LeapHybridSampler()   #accessing dwave
+        self.t_step = 10
         self.stepsize = 0.01
 
         self.hidlen = hidlen    #handling indexes
@@ -59,15 +58,18 @@ class QBM:
         for i in range(self.hidlen):
             for j in range(self.hidlen):
                 if i != j:
-                    self.coef[i][j] = 0;
+                    self.coef[i][j] = 0
+        for i in range(self.vislen):
+            for j in range(self.vislen):
+                self.coef[self.hidlen + i][self.hidlen + j] = 0
 
 
     def read_images(self, train = True):
         if train:
-            self.images = idx2numpy.convert_from_file('../MNIST/spin_train_images')
+            self.images = idx2numpy.convert_from_file('../MNIST/curved_train_images')
             self.labels = idx2numpy.convert_from_file('../MNIST/train_labels')
         else:
-            self.images = idx2numpy.convert_from_file('../MNIST/spin_test_images')
+            self.images = idx2numpy.convert_from_file('../MNIST/curved_test_images')
             self.labels = idx2numpy.convert_from_file('../MNIST/test_labels')
 
     def read_image(self, n):
@@ -135,7 +137,7 @@ class QBM:
         for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
             self.data_prob[i] = datum.num_occurrences / self.datan
             for j in range(self.hidlen + self.vislen):
-                self.data[i][j] = datum.sample[self.ind[j]]
+                self.data[i][j] = datum.sample[j]
             i += 1
 
     def save_data(self, filename = "test"): #save data as idx
@@ -151,6 +153,17 @@ class QBM:
         idx2numpy.convert_to_file(filename2, self.data_prob)
         idx2numpy.convert_to_file(filename3, lens)
 
+    def read_data(self, filename = "test"):
+        filename1 = "../Data/answer/" + filename + ".samples"
+        filename2 = "../Data/answer/" + filename + ".probs"
+        #filename3 = "../Data/answer/" + filename + ".lens"
+
+        '''lens = np.zeros((2), dtype = "int16")
+        lens[0] = self.hidlen
+        lens[1] = self.vislen'''
+
+        self.data = idx2numpy.convert_from_file(filename1)
+        self.data_prob = idx2numpy.convert_from_file(filename2)
 
     '''def calc_single_unfixed(self):
         self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
@@ -164,12 +177,14 @@ class QBM:
 
         for i in range(self.hidlen + self.vislen):
             for j in range(self.hidlen + self.vislen):
-                for k in range(self.datalen):
-                    self.double_unfixed[i][j] += self.data_prob[k] * self.data[k][i] * self.data[k][j]
-                if i == j:
-                    self.single_unfixed[i] = self.double_unfixed[i][j]
+                if (i == j or (i < self.hidlen and j >= self.hidlen)):
+                    for k in range(self.datalen):
+                        self.double_unfixed[i][j] += self.data_prob[k] * self.data[k][i] * self.data[k][j]
+                    if i == j:
+                        self.single_unfixed[i] = self.double_unfixed[i][j]
 
-    def choose_images(self, n = 10000):
+    def choose_images(self, n = 1000):
+        self.chosen_images = []
         numbers = random.sample(range(60000), n)
         for i in numbers:
             self.chosen_images += [self.images[i]]    
@@ -189,20 +204,18 @@ class QBM:
         self.single_fixed = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
         schet = 0
         for v in self.chosen_images:
-            print(schet)
             schet += 1
             self.single_fixed += self.calc_sigma_v(v)
         self.single_fixed = self.single_fixed / len(self.chosen_images)
 
     def calc_double_fixed(self):
-        self.choose_images()
-        self.double_fixed = np.zeros((self.vislen, self.hidlen), dtype = np.float_)
+        self.double_fixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
         #hid x hid:
-        #vis x vis:
+        '''#vis x vis:
         from_data = idx2numpy.convert_from_file('../MNIST/double')
         for i in range(self.vislen):
             for j in range(self.vislen):
-                self.double_fixed[self.hidlen + i][self.hidlen + j] = from_data[i][j]
+                self.double_fixed[self.hidlen + i][self.hidlen + j] = from_data[i][j]'''
         #vis x hid
         schet = 0
         for v in self.chosen_images:
@@ -210,16 +223,20 @@ class QBM:
             for i in range(self.imagesize):
                 vp[i] = v[i]
             vp[400 + self.labels[schet]] = 1
-            print(schet)
+            if (schet % 100) == 0:
+                print("Image: ", schet)
             schet += 1
             sigma_v = self.calc_sigma_v(v)
             for i in range(self.hidlen):
                 for j in range(self.vislen):
-                    self.double_fixed[i][j + self.hidlen] +=  vp[i] * sigma_v[j]
+                    self.double_fixed[i][self.hidlen + j] += sigma_v[i] * vp[j]
 
+        for i in range(self.hidlen + self.vislen):
+            for j in range(self.hidlen + self.vislen):
+                self.double_fixed[i][j] = self.double_fixed[i][j] / len(self.chosen_images)
         self.calc_single_fixed()
-        for i in range(self.hidlen + self .vislen):
-            self.double_fixed[i][i] = single_fixed[i]
+        for i in range(self.hidlen + self.vislen):
+            self.double_fixed[i][i] = self.single_fixed[i]
 
     def change_coef(self):
         self.delta = (self.double_fixed - self.double_unfixed) * self.stepsize
@@ -233,28 +250,20 @@ class QBM:
         self.fetch_data()
         self.save_data(str(step))
         self.calc_double_unfixed()
+        self.choose_images()
         self.calc_double_fixed()
-        self.calc_delta()
-        self.save_coef(str(step))
+        self.change_coef()
+        self.save_coef(str(int(step) + 1))
 
-    def make_steps(self, n):
+    def make_steps(self, n, stepsize = 0.1):
+        self.stepsize = stepsize
         starting_step = idx2numpy.convert_from_file("../Data/current_step")
         for i in range(n):
             step = starting_step[0] + i
             self.make_step(step)
-        starting_step[0] += n
-        idx2numpy.convert_to_file("../Data/current_step", starting_step)
+            print("Step " + str(step) + " complete!")
+        new_step = np.zeros((1), dtype = np.int32)
+        new_step[0] = starting_step[0] + n
+        idx2numpy.convert_to_file("../Data/current_step", new_step)
 
-def test(a, b):
-    qbm = QBM(a, b)
-    for i in range(a + b):
-        for j in range(a + b):
-            qbm.coef[i][j] = random.randrange(100) / 100
-            if i > j:
-                qbm.coef[i][j] = 0
-    for i in range(b):
-        for j in range(b):
-            if i != j:
-                qbm.coef[i][j] = 0
-    #a.read_images()
-    return qbm
+
