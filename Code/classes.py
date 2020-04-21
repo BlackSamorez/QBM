@@ -2,7 +2,7 @@ import pandas as pd
 import idx2numpy
 import numpy as np
 from math import *
-from dwave.system import LeapHybridSampler
+from dwave.system import LeapHybridSampler, EmbeddingComposite, DWaveSampler
 import json
 import dimod
 import random
@@ -15,12 +15,12 @@ class QBM:
         self.test = test
         if not self.test:
             self.sampler = LeapHybridSampler()   #accessing dwave
-        self.t_step = 10
-        self.stepsize = 0.01
+        self.t_step = 20
+        self.stepsize = 0.1
 
         self.hidlen = hidlen    #handling indexes
         self.vislen = vislen
-        self.imagesize = vislen - 10
+        self.outlen = 10
         self.hind = ['h' + str(i) for i in range(self.hidlen)]
         self.vind = ['v' + str(i) for i in range(self.vislen)]
         self.ind = self.hind + self.vind
@@ -52,7 +52,7 @@ class QBM:
     def randomise_coef(self):    #for premature testing
         for i in range(self.vislen + self.hidlen):
             for j in range(self.vislen + self.hidlen):
-                self.coef[i][j] = random.randrange(100) / 100
+                self.coef[i][j] = random.randrange(200) / 100 - 1
                 if i > j :
                     self.coef[i][j] = 0
         for i in range(self.hidlen):
@@ -66,15 +66,19 @@ class QBM:
 
     def read_images(self, train = True):
         if train:
-            self.images = idx2numpy.convert_from_file('../MNIST/curved_train_images')
+            self.images = idx2numpy.convert_from_file('../MNIST/complete_train_images')
             self.labels = idx2numpy.convert_from_file('../MNIST/train_labels')
         else:
-            self.images = idx2numpy.convert_from_file('../MNIST/curved_test_images')
+            self.images = idx2numpy.convert_from_file('../MNIST/complete_test_images')
             self.labels = idx2numpy.convert_from_file('../MNIST/test_labels')
 
     def read_image(self, n):
         self.image = self.images[n]
         self.label = self.labels[n]
+
+    def read_tests(self):
+        self.images = idx2numpy.convert_from_file("../Data/tests/data")
+        self.chosen_images = self.images
 
     def read_coef(self, filename = "last"):
         filename = "../Data/coef/" + filename + ".coef"
@@ -97,7 +101,7 @@ class QBM:
         if not self.test:
             self.datan = n
             self.make_bqm()
-            self.response = self.sampler.sample(self.bqm, num_reads=n)
+            self.response = self.sampler.sample(self.bqm, num_reads = n)
             #self.response = self.response.data(fields = ['sample', 'num_occurrences'], sorted_by = 'sample')
         else:
             print("it's a test, can't run on dwave")
@@ -115,15 +119,15 @@ class QBM:
         self.bqm.fix_variable(self.vind[i], val)
 
     def fix_image(self): #fix image into bqm
-        for i in range(400):
-            self.bqm.fix_variable(self.vind[i], self.image[i])
+        for i in range(self.vislen - self.outlen):
+            self.bqm.fix_variable(i + self.hidlen, self.image[i])
 
-    def fix_output(self, n): #fix output (0-9)
-        for i in range(10):
+    '''def fix_output(self, n): #fix output (0-9)
+        for i in range(self.outlen):
             if i == n:
-                self.bqm.fix_variable(self.vind[-(10 - i)], 1)
+                self.bqm.fix_variable(self.vind[-(self.outlen - i)], 1)
             else:
-                self.bqm.fix_variable(self.vind[-(10 - i)], 0)
+                self.bqm.fix_variable(self.vind[-(self.outlen - i)], 0)'''
 
 
     def fetch_data(self):    #reading response
@@ -165,14 +169,14 @@ class QBM:
         self.data = idx2numpy.convert_from_file(filename1)
         self.data_prob = idx2numpy.convert_from_file(filename2)
 
-    '''def calc_single_unfixed(self):
+    def calc_single_unfixed(self):
         self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
         responses = self.data.transpose()
 
-        self.single_unfixed = responses.dot(self.data_prob)'''
+        self.single_unfixed = responses.dot(self.data_prob)
 
     def calc_double_unfixed(self):
-        self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
+        self.calc_single_unfixed()
         self.double_unfixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
 
         for i in range(self.hidlen + self.vislen):
@@ -181,7 +185,7 @@ class QBM:
                     for k in range(self.datalen):
                         self.double_unfixed[i][j] += self.data_prob[k] * self.data[k][i] * self.data[k][j]
                     if i == j:
-                        self.single_unfixed[i] = self.double_unfixed[i][j]
+                        self.double_unfixed[i][j] = self.single_unfixed[i]
 
     def choose_images(self, n = 1000):
         self.chosen_images = []
@@ -191,38 +195,26 @@ class QBM:
 
     def calc_sigma_v(self, v):
         state = np.zeros((self.vislen + self.hidlen), dtype = np.float_)
-        for i in range(len(v)):
-            state[i] = v[i]
+        for i in range(self.vislen):
+            state[self.hidlen + i] = v[i]
         b = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
-        for i in range(self.vislen + self.hidlen):
-            b[i] = self.coef[i][i]
-        b_eff = b + self.coef.dot(state)
+        b_eff = self.coef.dot(state)
         sigma_v = np.tanh(b_eff)
         return sigma_v
 
     def calc_single_fixed(self):
         self.single_fixed = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
-        schet = 0
         for v in self.chosen_images:
-            schet += 1
             self.single_fixed += self.calc_sigma_v(v)
         self.single_fixed = self.single_fixed / len(self.chosen_images)
 
     def calc_double_fixed(self):
         self.double_fixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
-        #hid x hid:
-        '''#vis x vis:
-        from_data = idx2numpy.convert_from_file('../MNIST/double')
-        for i in range(self.vislen):
-            for j in range(self.vislen):
-                self.double_fixed[self.hidlen + i][self.hidlen + j] = from_data[i][j]'''
-        #vis x hid
         schet = 0
         for v in self.chosen_images:
             vp = np.ones(self.vislen, dtype = np.float_) * -1
-            for i in range(self.imagesize):
+            for i in range(self.vislen):
                 vp[i] = v[i]
-            vp[400 + self.labels[schet]] = 1
             if (schet % 100) == 0:
                 print("Image: ", schet)
             schet += 1
@@ -240,7 +232,7 @@ class QBM:
 
     def change_coef(self):
         self.delta = (self.double_fixed - self.double_unfixed) * self.stepsize
-        self.coef = self.coef + self.delta
+        self.coef = self.coef - self.delta
 
 
     def make_step(self, step):
