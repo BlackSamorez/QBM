@@ -62,7 +62,8 @@ class QBM:
                     self.coef[i][j] = 0
         for i in range(self.vislen):
             for j in range(self.vislen):
-                self.coef[self.hidlen + i][self.hidlen + j] = 0
+            	if i != j:
+                    self.coef[self.hidlen + i][self.hidlen + j] = 0
 
 
     def read_images(self, train = True):
@@ -221,9 +222,9 @@ class QBM:
             vp = np.ones(self.vislen, dtype = np.float_) * -1
             for i in range(self.vislen):
                 vp[i] = v[i]
-            if schet % 500 == 0:
+            '''if schet % 500 == 0:
                 print("Image: ", schet)
-            schet += 1
+            schet += 1'''
             sigma_v = self.calc_sigma_v(v)
             for i in range(self.hidlen):
                 for j in range(self.vislen):
@@ -240,7 +241,7 @@ class QBM:
 
     def change_coef(self):
         self.delta = (self.double_fixed - self.double_unfixed) * self.stepsize
-        self.coef = self.coef - self.delta
+        self.coef = self.coef + self.delta
 
 
     def make_step(self, step):
