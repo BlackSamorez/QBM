@@ -47,6 +47,7 @@ class QBM:
         self.single_fixed = []
         self.double_fixed = []
         self.delta = []
+        self.mean_single = []
 
 
     def randomise_coef(self):    #for premature testing
@@ -66,6 +67,7 @@ class QBM:
 
     def read_images(self, train = True):
         if train:
+            self.mean_single = idx2numpy.convert_from_file('../MNIST/single')
             self.images = idx2numpy.convert_from_file('../MNIST/complete_train_images')
             self.labels = idx2numpy.convert_from_file('../MNIST/train_labels')
         else:
@@ -77,6 +79,7 @@ class QBM:
         self.label = self.labels[n]
 
     def read_tests(self):
+        self.mean_single = idx2numpy.convert_from_file("../Data/tests/single")
         self.images = idx2numpy.convert_from_file("../Data/tests/data")
         self.chosen_images = self.images
 
@@ -199,6 +202,8 @@ class QBM:
             state[self.hidlen + i] = v[i]
         b = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
         b_eff = self.coef.dot(state)
+        for i in range(self.hidlen):
+            b_eff[i] += self.coef[i][i]
         sigma_v = np.tanh(b_eff)
         return sigma_v
 
@@ -208,6 +213,7 @@ class QBM:
             self.single_fixed += self.calc_sigma_v(v)
         self.single_fixed = self.single_fixed / len(self.chosen_images)
 
+
     def calc_double_fixed(self):
         self.double_fixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
         schet = 0
@@ -215,7 +221,7 @@ class QBM:
             vp = np.ones(self.vislen, dtype = np.float_) * -1
             for i in range(self.vislen):
                 vp[i] = v[i]
-            if (schet % 100) == 0:
+            if schet % 500 == 0:
                 print("Image: ", schet)
             schet += 1
             sigma_v = self.calc_sigma_v(v)
@@ -227,8 +233,10 @@ class QBM:
             for j in range(self.hidlen + self.vislen):
                 self.double_fixed[i][j] = self.double_fixed[i][j] / len(self.chosen_images)
         self.calc_single_fixed()
-        for i in range(self.hidlen + self.vislen):
+        for i in range(self.hidlen):
             self.double_fixed[i][i] = self.single_fixed[i]
+        for i in range(self.vislen):
+        	self.double_fixed[self.hidlen + i][self.hidlen + i] = self.mean_single[i]
 
     def change_coef(self):
         self.delta = (self.double_fixed - self.double_unfixed) * self.stepsize
