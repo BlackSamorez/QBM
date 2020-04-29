@@ -6,6 +6,7 @@ from dwave.system import LeapHybridSampler, EmbeddingComposite, DWaveSampler
 import json
 import dimod
 import random
+import hybrid
 
 
 
@@ -15,8 +16,8 @@ class QBM:
         self.test = test
         if not self.test:
             self.sampler = LeapHybridSampler()   #accessing dwave
-        self.t_step = 20
-        self.stepsize = 0.1
+        self.t_step = 1
+        self.stepsize = 0.2
 
         self.hidlen = hidlen    #handling indexes
         self.vislen = vislen
@@ -25,6 +26,7 @@ class QBM:
         self.vind = ['v' + str(i) for i in range(self.vislen)]
         self.ind = self.hind + self.vind
 
+        self.cmap = []
         self.coef = np.zeros((self.vislen + self.hidlen, self.vislen + self.hidlen), dtype = np.float_)
         #self.Q = {(i, j): self.coef[i][j] for i in self.ind for j in self.ind}
         self.bqm = dimod.BinaryQuadraticModel(self.coef, 'SPIN')
@@ -32,7 +34,7 @@ class QBM:
         self.response = 0    #response and data from it
         self.datalen = 0
         self.data = []
-        self.data_prob = []
+        self.data_occ = []
         self.datan = 0
         self.prob_vec = []
 
@@ -50,20 +52,10 @@ class QBM:
         self.mean_single = []
 
 
-    def randomise_coef(self):    #for premature testing
-        for i in range(self.vislen + self.hidlen):
-            for j in range(self.vislen + self.hidlen):
-                self.coef[i][j] = random.randrange(200) / 100 - 1
-                if i > j :
-                    self.coef[i][j] = 0
-        for i in range(self.hidlen):
-            for j in range(self.hidlen):
-                if i != j:
-                    self.coef[i][j] = 0
-        for i in range(self.vislen):
-            for j in range(self.vislen):
-            	if i != j:
-                    self.coef[self.hidlen + i][self.hidlen + j] = 0
+    def randomize_coef(self):    #for premature testing
+        self.read_cmap()
+        for pair in self.cmap:
+            self.coef[pair[0]][pair[1]] = random.randrange(200) / 100 - 1
 
 
     def read_images(self, train = True):
@@ -92,6 +84,9 @@ class QBM:
         filename = "../Data/coef/" + filename + ".coef"
         idx2numpy.convert_to_file(filename, self.coef)
 
+    def read_cmap(self, filename = "cmap"):
+        self.cmap = idx2numpy.convert_from_file("../MNIST/" + filename)
+
 
     #def make_q(self): #question from coefs
         #self.Q = {(i, j): self.coef[i][j] for i in self.ind for j in self.ind}
@@ -103,7 +98,7 @@ class QBM:
 
     def run(self, n = 1): #run on dwave
         if not self.test:
-            self.datan = n
+            self.datan += n
             self.make_bqm()
             self.response = self.sampler.sample(self.bqm, num_reads = n)
             #self.response = self.response.data(fields = ['sample', 'num_occurrences'], sorted_by = 'sample')
@@ -112,7 +107,7 @@ class QBM:
 
     def sim_run(self, n = 100): #run locally (simulation)
         self.make_bqm()
-        self.datan = n
+        self.datan += n
         self.response = dimod.SimulatedAnnealingSampler().sample(self.bqm, num_reads = self.datan)
 
 
@@ -139,14 +134,25 @@ class QBM:
         for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
             self.datalen += 1
         self.data = np.zeros((self.datalen, self.hidlen + self.vislen), dtype = "int8")
-        self.data_prob = np.zeros(self.datalen, dtype = np.float_)
+        self.data_occ = np.zeros(self.datalen, dtype = np.float_)
         
         i = 0
         for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
-            self.data_prob[i] = datum.num_occurrences / self.datan
+            self.data_occ[i] = datum.num_occurrences
             for j in range(self.hidlen + self.vislen):
                 self.data[i][j] = datum.sample[j]
             i += 1
+
+    def add_data(self):
+        for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
+            self.datalen += 1
+        for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
+            self.data_occ = np.append(self.data_occ, datum.num_occurrences)
+            ent = np.zeros((1, self.hidlen + self.vislen), dtype = np.int32)
+            for i in range(self.hidlen + self.vislen):
+                ent[0][i] = datum.sample[i]
+            self.data = np.concatenate((self.data, ent), axis = 0)
+
 
     def save_data(self, filename = "test"): #save data as idx
         filename1 = "../Data/answer/" + filename + ".samples"
@@ -158,12 +164,12 @@ class QBM:
         lens[1] = self.vislen
 
         idx2numpy.convert_to_file(filename1, self.data)
-        idx2numpy.convert_to_file(filename2, self.data_prob)
+        idx2numpy.convert_to_file(filename2, self.data_occ)
         idx2numpy.convert_to_file(filename3, lens)
 
     def read_data(self, filename = "test"):
         filename1 = "../Data/answer/" + filename + ".samples"
-        filename2 = "../Data/answer/" + filename + ".probs"
+        filename2 = "../Data/answer/" + filename + ".occs"
         #filename3 = "../Data/answer/" + filename + ".lens"
 
         '''lens = np.zeros((2), dtype = "int16")
@@ -171,25 +177,23 @@ class QBM:
         lens[1] = self.vislen'''
 
         self.data = idx2numpy.convert_from_file(filename1)
-        self.data_prob = idx2numpy.convert_from_file(filename2)
+        self.data_occ = idx2numpy.convert_from_file(filename2)
 
     def calc_single_unfixed(self):
         self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
         responses = self.data.transpose()
 
-        self.single_unfixed = responses.dot(self.data_prob)
+        self.single_unfixed = responses.dot(self.data_occ / self.datan)
 
     def calc_double_unfixed(self):
         self.calc_single_unfixed()
         self.double_unfixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
 
-        for i in range(self.hidlen + self.vislen):
-            for j in range(self.hidlen + self.vislen):
-                if (i == j or (i < self.hidlen and j >= self.hidlen)):
-                    for k in range(self.datalen):
-                        self.double_unfixed[i][j] += self.data_prob[k] * self.data[k][i] * self.data[k][j]
-                    if i == j:
-                        self.double_unfixed[i][j] = self.single_unfixed[i]
+        for pair in self.cmap:
+            for k in range(self.datalen):
+                self.double_unfixed[pair[0]][pair[1]] += self.data_occ[k] / self.datan * self.data[k][pair[0]] * self.data[k][pair[1]]
+            if pair[0] == pair[1]:
+                self.double_unfixed[pair[0]][pair[0]] = self.single_unfixed[pair[0]]
 
     def choose_images(self, n = 1000):
         self.chosen_images = []
@@ -233,6 +237,8 @@ class QBM:
         for i in range(self.hidlen + self.vislen):
             for j in range(self.hidlen + self.vislen):
                 self.double_fixed[i][j] = self.double_fixed[i][j] / len(self.chosen_images)
+                if not [i, j] in self.cmap:
+                    self.double_fixed[i][j] = 0
         self.calc_single_fixed()
         for i in range(self.hidlen):
             self.double_fixed[i][i] = self.single_fixed[i]
