@@ -7,15 +7,19 @@ import json
 import dimod
 import random
 import hybrid
-
-
+from neal import SimulatedAnnealingSampler
 
 
 class QBM:
-    def __init__(self, hidlen, vislen, test = False):
-        self.test = test
-        if not self.test:
+    def __init__(self, hidlen, vislen, sampler = "Test"):
+        self.sep = 0
+        if sampler == "LeapHybridSampler":
             self.sampler = LeapHybridSampler()   #accessing dwave
+            self.sep = 1
+        if sampler == "DWaveSampler":
+            self.sampler = EmbeddingComposite(DWaveSampler())
+        if sampler == "Test":
+            self.sampler = SimulatedAnnealingSampler()
         self.t_step = 1
         self.stepsize = 0.2
 
@@ -97,18 +101,14 @@ class QBM:
 
 
     def run(self, n = 1): #run on dwave
-        if not self.test:
-            self.datan += n
-            self.make_bqm()
-            self.response = self.sampler.sample(self.bqm, num_reads = n)
-            #self.response = self.response.data(fields = ['sample', 'num_occurrences'], sorted_by = 'sample')
-        else:
-            print("it's a test, can't run on dwave")
+        self.datan += n
+        self.make_bqm()
+        self.response = self.sampler.sample(self.bqm, num_reads = n)
 
-    def sim_run(self, n = 100): #run locally (simulation)
+    '''def sim_run(self, n = 100): #run locally (simulation)
         self.make_bqm()
         self.datan += n
-        self.response = dimod.SimulatedAnnealingSampler().sample(self.bqm, num_reads = self.datan)
+        self.response = dimod.SimulatedAnnealingSampler().sample(self.bqm, num_reads = self.datan)'''
 
 
     def fix_h(self, i, val): #fix hidden layer qubit
@@ -253,8 +253,17 @@ class QBM:
     def make_step(self, step):
         self.read_coef(str(step))
         self.make_bqm()
-        self.run(self.t_step)
-        self.fetch_data()
+        if not self.sep:
+            self.run(self.t_step)
+            self.fetch_data()
+            print("Got full respose, n = ", self.t_step)
+        else:
+            self.run(1)
+            self.fetch_data()
+            for i in range(self.t_step - 1):
+                self.run(1)
+                self.add_data()
+                print("Got respose ", i + 2, " out of", self.t_step)
         self.save_data(str(step))
         self.calc_double_unfixed()
         self.choose_images()
