@@ -230,29 +230,30 @@ class QBM:
     def calc_double_fixed(self):
         print("Dataset processing has begun:")
         self.double_fixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
+        temp = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
         schet = 0
         for v in self.chosen_images:
             vp = np.ones(self.vislen, dtype = np.float_) * -1
             for i in range(self.vislen):
                 vp[i] = v[i]
-            if schet % 500 == 0:
+            if schet % 4000 == 0:
                 print("Image: ", schet, " out of ", len(self.chosen_images) , " processed")
             schet += 1
             sigma_v = self.calc_sigma_v(v)
             for i in range(self.hidlen):
                 for j in range(self.vislen):
-                    self.double_fixed[i][self.hidlen + j] += sigma_v[i] * vp[j]
+                    temp[i][self.hidlen + j] += sigma_v[i] * vp[j]
 
         for i in range(self.hidlen + self.vislen):
             for j in range(self.hidlen + self.vislen):
-                self.double_fixed[i][j] = self.double_fixed[i][j] / len(self.chosen_images)
-                if not [i, j] in self.cmap:
-                    self.double_fixed[i][j] = 0
+                temp[i][j] = temp[i][j] / len(self.chosen_images)
         self.calc_single_fixed()
         for i in range(self.hidlen):
-            self.double_fixed[i][i] = self.single_fixed[i]
+            temp[i][i] = self.single_fixed[i]
         for i in range(self.vislen):
-        	self.double_fixed[self.hidlen + i][self.hidlen + i] = self.mean_single[i]
+        	temp[self.hidlen + i][self.hidlen + i] = self.mean_single[i]
+        for pair in self.cmap:
+            self.double_unfixed[pair[0]][pair[1]] = temp[pair[0]][pair[1]]
         print("Dataset processing has finished")
 
     def change_coef(self):

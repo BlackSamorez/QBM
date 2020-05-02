@@ -1,4 +1,6 @@
-Code/ocean\
-Data/
+Code/source
+Code/venv
 LETTER/Coef
 LETTER/Resp
+MNIST/Coef
+MNIST/Resp
