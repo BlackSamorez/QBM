@@ -2,7 +2,7 @@ import pandas as pd
 import idx2numpy
 import numpy as np
 from math import *
-from dwave.system import LeapHybridSampler, EmbeddingComposite, DWaveSampler
+from dwave.system import LeapHybridSampler, EmbeddingComposite, DWaveSampler, AutoEmbeddingComposite
 import json
 import dimod
 import random
@@ -17,11 +17,12 @@ class QBM:
             self.sampler = LeapHybridSampler()   #accessing dwave
             self.sep = 1
         if sampler == "DWaveSampler":
-            self.sampler = EmbeddingComposite(DWaveSampler())
+            self.sampler = AutoEmbeddingComposite(DWaveSampler())
         if sampler == "Test":
             self.sampler = SimulatedAnnealingSampler()
-        self.t_step = 400
+        self.t_step = 1000
         self.stepsize = 0.2
+        self.path = ""
 
         self.hidlen = hidlen    #handling indexes
         self.vislen = vislen
@@ -62,34 +63,39 @@ class QBM:
             self.coef[pair[0]][pair[1]] = random.randrange(200) / 100 - 1
 
 
-    def read_images(self, train = True):
+    def read_data(self, train = True):
+        prop = idx2numpy.convert_from_file(self.path + "Data/prop")
+        self.hidlen = prop[0]
+        self.vislen = prop[1]
+        self.outlen = prop[2]
+        self.coef = np.zeros((self.vislen + self.hidlen, self.vislen + self.hidlen), dtype = np.float_)
+        self.make_bqm()
+        self.read_cmap()
         if train:
-            self.mean_single = idx2numpy.convert_from_file('../MNIST/single')
-            self.images = idx2numpy.convert_from_file('../MNIST/complete_train_images')
-            self.labels = idx2numpy.convert_from_file('../MNIST/train_labels')
+            self.mean_single = idx2numpy.convert_from_file(self.path + 'Data/single')
+            self.images = idx2numpy.convert_from_file(self.path + 'Data/train')
         else:
-            self.images = idx2numpy.convert_from_file('../MNIST/complete_test_images')
-            self.labels = idx2numpy.convert_from_file('../MNIST/test_labels')
+            self.images = idx2numpy.convert_from_file(self.path + 'Data/test')
+
 
     def read_image(self, n):
         self.image = self.images[n]
-        self.label = self.labels[n]
 
-    def read_tests(self):
+    '''def read_tests(self):
         self.mean_single = idx2numpy.convert_from_file("../Data/tests/single")
         self.images = idx2numpy.convert_from_file("../Data/tests/data")
-        self.chosen_images = self.images
+        self.chosen_images = self.images'''
 
     def read_coef(self, filename = "last"):
-        filename = "../Data/coef/" + filename + ".coef"
+        filename = self.path + "Coef/" + filename + ".coef"
         self.coef = idx2numpy.convert_from_file(filename)
 
     def save_coef(self, filename = "last"):
-        filename = "../Data/coef/" + filename + ".coef"
+        filename = self.path + "Coef/" + filename + ".coef"
         idx2numpy.convert_to_file(filename, self.coef)
 
-    def read_cmap(self, filename = "cmap"):
-        self.cmap = idx2numpy.convert_from_file("../MNIST/" + filename)
+    def read_cmap(self):
+        self.cmap = idx2numpy.convert_from_file(self.path + "Data/cmap")
 
 
     #def make_q(self): #question from coefs
@@ -154,10 +160,10 @@ class QBM:
             self.data = np.concatenate((self.data, ent), axis = 0)
 
 
-    def save_data(self, filename = "test"): #save data as idx
-        filename1 = "../Data/answer/" + filename + ".samples"
-        filename2 = "../Data/answer/" + filename + ".probs"
-        filename3 = "../Data/answer/" + filename + ".lens"
+    def save_data(self, number = "test"): #save data as idx
+        filename1 = self.path + "Resp/" + number + ".samples"
+        filename2 = self.path + "Resp/" + number + ".occs"
+        filename3 = self.path + "Resp/" + number + ".lens"
 
         lens = np.zeros((2), dtype = "int16")
         lens[0] = self.hidlen
@@ -167,20 +173,21 @@ class QBM:
         idx2numpy.convert_to_file(filename2, self.data_occ)
         idx2numpy.convert_to_file(filename3, lens)
 
-    def read_data(self, filename = "test"):
-        filename1 = "../Data/answer/" + filename + ".samples"
-        filename2 = "../Data/answer/" + filename + ".occs"
-        #filename3 = "../Data/answer/" + filename + ".lens"
+    def read_answer(self, number = "test"):
+        filename1 = self.path + "Resp/" + number + ".samples"
+        filename2 = self.path + "Resp/" + number + ".occs"
+        '''filename3 = self.path + "Resp/" + number + ".lens"
 
-        '''lens = np.zeros((2), dtype = "int16")
+        lens = np.zeros((2), dtype = "int16")
         lens[0] = self.hidlen
         lens[1] = self.vislen'''
 
         self.data = idx2numpy.convert_from_file(filename1)
         self.data_occ = idx2numpy.convert_from_file(filename2)
 
+
     def calc_single_unfixed(self):
-        print("Response rocedding has begun:")
+        print("Response processing has begun:")
         self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
         responses = self.data.transpose()
         self.single_unfixed = responses.dot(self.data_occ / self.datan)
@@ -196,9 +203,9 @@ class QBM:
             if pair[0] == pair[1]:
                 self.double_unfixed[pair[0]][pair[0]] = self.single_unfixed[pair[0]]
 
-    def choose_images(self, n = 1000):
+    def choose_images(self, n = 10000):
         self.chosen_images = []
-        numbers = random.sample(range(60000), n)
+        numbers = random.sample(range(len(self.images)), n)
         for i in numbers:
             self.chosen_images += [self.images[i]]    
 
@@ -271,7 +278,7 @@ class QBM:
                     print("Got respose ", i + 2, " out of", self.t_step)
         self.save_data(str(step))
         self.calc_double_unfixed()
-        self.choose_images(10000)
+        self.choose_images(len(self.images))
         self.calc_double_fixed()
         self.change_coef()
         self.save_coef(str(int(step) + 1))
@@ -279,12 +286,12 @@ class QBM:
 
     def make_steps(self, n, stepsize = 0.1):
         self.stepsize = stepsize
-        starting_step = idx2numpy.convert_from_file("../Data/current_step")
+        starting_step = idx2numpy.convert_from_file(self.path + "current_step")
         for i in range(n):
             step = starting_step[0] + i
             self.make_step(step)
         new_step = np.zeros((1), dtype = np.int32)
         new_step[0] = starting_step[0] + n
-        idx2numpy.convert_to_file("../Data/current_step", new_step)
+        idx2numpy.convert_to_file(self.path + "current_step", new_step)
 
 
