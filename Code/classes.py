@@ -20,7 +20,7 @@ class QBM:
             self.sampler = EmbeddingComposite(DWaveSampler())
         if sampler == "Test":
             self.sampler = SimulatedAnnealingSampler()
-        self.t_step = 1
+        self.t_step = 400
         self.stepsize = 0.2
 
         self.hidlen = hidlen    #handling indexes
@@ -180,10 +180,11 @@ class QBM:
         self.data_occ = idx2numpy.convert_from_file(filename2)
 
     def calc_single_unfixed(self):
+        print("Response rocedding has begun:")
         self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
         responses = self.data.transpose()
-
         self.single_unfixed = responses.dot(self.data_occ / self.datan)
+        print("Response processing has finished")
 
     def calc_double_unfixed(self):
         self.calc_single_unfixed()
@@ -220,15 +221,16 @@ class QBM:
 
 
     def calc_double_fixed(self):
+        print("Dataset processing has begun:")
         self.double_fixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
         schet = 0
         for v in self.chosen_images:
             vp = np.ones(self.vislen, dtype = np.float_) * -1
             for i in range(self.vislen):
                 vp[i] = v[i]
-            '''if schet % 500 == 0:
-                print("Image: ", schet)
-            schet += 1'''
+            if schet % 500 == 0:
+                print("Image: ", schet, " out of ", len(self.chosen_images) , " processed")
+            schet += 1
             sigma_v = self.calc_sigma_v(v)
             for i in range(self.hidlen):
                 for j in range(self.vislen):
@@ -244,6 +246,7 @@ class QBM:
             self.double_fixed[i][i] = self.single_fixed[i]
         for i in range(self.vislen):
         	self.double_fixed[self.hidlen + i][self.hidlen + i] = self.mean_single[i]
+        print("Dataset processing has finished")
 
     def change_coef(self):
         self.delta = (self.double_fixed - self.double_unfixed) * self.stepsize
@@ -251,6 +254,7 @@ class QBM:
 
 
     def make_step(self, step):
+        print("Step " + str(step) + " began!")
         self.read_coef(str(step))
         self.make_bqm()
         if not self.sep:
@@ -263,13 +267,15 @@ class QBM:
             for i in range(self.t_step - 1):
                 self.run(1)
                 self.add_data()
-                print("Got respose ", i + 2, " out of", self.t_step)
+                if (i + 2) % 10 == 0:
+                    print("Got respose ", i + 2, " out of", self.t_step)
         self.save_data(str(step))
         self.calc_double_unfixed()
-        self.choose_images()
+        self.choose_images(10000)
         self.calc_double_fixed()
         self.change_coef()
         self.save_coef(str(int(step) + 1))
+        print("Step " + str(step) + " complete!")
 
     def make_steps(self, n, stepsize = 0.1):
         self.stepsize = stepsize
@@ -277,7 +283,6 @@ class QBM:
         for i in range(n):
             step = starting_step[0] + i
             self.make_step(step)
-            print("Step " + str(step) + " complete!")
         new_step = np.zeros((1), dtype = np.int32)
         new_step[0] = starting_step[0] + n
         idx2numpy.convert_to_file("../Data/current_step", new_step)
