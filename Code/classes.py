@@ -21,7 +21,7 @@ class QBM:
         if sampler == "Test":
             self.sampler = SimulatedAnnealingSampler()
         self.t_step = 1000
-        self.stepsize = 0.2
+        self.stepsize = 0.1
         self.path = ""
 
         self.hidlen = hidlen    #handling indexes
@@ -39,9 +39,14 @@ class QBM:
         self.response = 0    #response and data from it
         self.datalen = 0
         self.data = []
+        self.index = []
+        for i in range(self.hidlen + self.vislen):
+            self.index += [i]
         self.data_occ = []
         self.datan = 0
-        self.prob_vec = []
+        self.prob = []
+        self.top = [0] * 3
+        self.expected = 0
 
         self.image = []    #images from dataset
         self.images = []
@@ -111,6 +116,9 @@ class QBM:
         self.make_bqm()
         self.response = self.sampler.sample(self.bqm, num_reads = n)
 
+    def run_test(self, n = 1):
+        self.datan += n
+        self.response = self.sampler.sample(self.bqm, num_reads = n)
     '''def sim_run(self, n = 100): #run locally (simulation)
         self.make_bqm()
         self.datan += n
@@ -126,6 +134,11 @@ class QBM:
     def fix_image(self): #fix image into bqm
         for i in range(self.vislen - self.outlen):
             self.bqm.fix_variable(i + self.hidlen, self.image[i])
+        self.index = []
+        for i in range(self.hidlen):
+            self.index += [i]
+        for i in range(self.outlen):
+            self.index += [self.hidlen + self.vislen - self.outlen + i]
 
     '''def fix_output(self, n): #fix output (0-9)
         for i in range(self.outlen):
@@ -135,7 +148,7 @@ class QBM:
                 self.bqm.fix_variable(self.vind[-(self.outlen - i)], 0)'''
 
 
-    def fetch_data(self):    #reading response
+    def fetch_answer(self):    #reading response
         self.datalen = 0
         for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
             self.datalen += 1
@@ -145,22 +158,21 @@ class QBM:
         i = 0
         for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
             self.data_occ[i] = datum.num_occurrences
-            for j in range(self.hidlen + self.vislen):
+            for j in self.index:
                 self.data[i][j] = datum.sample[j]
             i += 1
 
-    def add_data(self):
+    def add_answer(self):
         for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
             self.datalen += 1
         for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
             self.data_occ = np.append(self.data_occ, datum.num_occurrences)
             ent = np.zeros((1, self.hidlen + self.vislen), dtype = np.int32)
-            for i in range(self.hidlen + self.vislen):
+            for i in self.index:
                 ent[0][i] = datum.sample[i]
             self.data = np.concatenate((self.data, ent), axis = 0)
 
-
-    def save_data(self, number = "test"): #save data as idx
+    def save_answer(self, number = "test"): #save data as idx
         filename1 = self.path + "Resp/" + number + ".samples"
         filename2 = self.path + "Resp/" + number + ".occs"
         filename3 = self.path + "Resp/" + number + ".lens"
@@ -184,6 +196,41 @@ class QBM:
 
         self.data = idx2numpy.convert_from_file(filename1)
         self.data_occ = idx2numpy.convert_from_file(filename2)
+
+    def analyze_answer(self):
+        one_count = 0
+        self.prob = np.zeros((self.outlen), dtype = np.float_)
+        for instance in self.data:
+            for out in range(self.outlen):
+                if (instance[self.hidlen + self.vislen - self.outlen + out] == 1):
+                    self.prob[out] += 1
+                    one_count += 1
+        self.prob = self.prob / one_count
+        lp = 0
+        top_prob = [0] * 3
+        self.top = [0] * 3
+        for i in range(self.outlen):
+            if self.prob[i] > top_prob[0]:
+                self.top[2] = self.top[1]
+                top_prob[2] = top_prob[1]
+                self.top[1] = self.top[0]
+                top_prob[1] = top_prob[0]
+                self.top[0] = i + 1
+                top_prob[0] = self.prob[i]
+            else:
+                if self.prob[i] > top_prob[1]:
+                    self.top[2] = self.top[1]
+                    top_prob[2] = top_prob[1]
+                    self.top[1] = i + 1
+                    top_prob[1] = self.prob[i]
+                else:
+                    if self.prob[i] > top_prob[2]:
+                        self.top[2] = i + 1
+                        top_prob[2] = self.prob[i]
+        for i in range(self.outlen):
+            if self.image[-i - 1] == 1:
+                self.expected = i
+        self.expected = 26 - self.expected
 
 
     def calc_single_unfixed(self):
@@ -209,7 +256,7 @@ class QBM:
         for i in numbers:
             self.chosen_images += [self.images[i]]    
 
-    def calc_sigma_v(self, v):
+    def calc_sigma_v(self, v, th = True):
         state = np.zeros((self.vislen + self.hidlen), dtype = np.float_)
         for i in range(self.vislen):
             state[self.hidlen + i] = v[i]
@@ -217,8 +264,9 @@ class QBM:
         b_eff = self.coef.dot(state)
         for i in range(self.hidlen):
             b_eff[i] += self.coef[i][i]
-        sigma_v = np.tanh(b_eff)
-        return sigma_v
+        if th:
+            b_eff = np.tanh(b_eff)
+        return b_eff
 
     def calc_single_fixed(self):
         self.single_fixed = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
@@ -267,17 +315,17 @@ class QBM:
         self.make_bqm()
         if not self.sep:
             self.run(self.t_step)
-            self.fetch_data()
+            self.fetch_answer()
             print("Got full respose, n = ", self.t_step)
         else:
             self.run(1)
-            self.fetch_data()
+            self.fetch_answer()
             for i in range(self.t_step - 1):
                 self.run(1)
-                self.add_data()
+                self.add_answer()
                 if (i + 2) % 10 == 0:
                     print("Got respose ", i + 2, " out of", self.t_step)
-        self.save_data(str(step))
+        self.save_answer(str(step))
         self.calc_double_unfixed()
         self.choose_images(len(self.images))
         self.calc_double_fixed()
@@ -288,11 +336,46 @@ class QBM:
     def make_steps(self, n, stepsize = 0.1):
         self.stepsize = stepsize
         starting_step = idx2numpy.convert_from_file(self.path + "current_step")
+        new_step = np.zeros((1), dtype = np.int32)
         for i in range(n):
             step = starting_step[0] + i
             self.make_step(step)
-        new_step = np.zeros((1), dtype = np.int32)
-        new_step[0] = starting_step[0] + n
-        idx2numpy.convert_to_file(self.path + "current_step", new_step)
+            new_step[0] = step
+            idx2numpy.convert_to_file(self.path + "current_step", new_step)
 
+    def calc_pv(self, v):
+        b_eff = self.calc_sigma_v(v, False)
+        Energy = 0
+        for i in range(self.vislen):
+            Energy += v[i] * self.coef[self.hidlen + i][self.hidlen + i]
+        pv = e ** (-Energy)
+        for i in range(self.hidlen):
+            pv = pv * cosh(b_eff[i])
+        return pv
 
+    def calc_div(self):
+        pvs = [0] * len(self.images)
+        pvsum = 0
+        pds = [1 / len(self.images)] * len(self.images)
+        i = 0
+        for image in self.images:
+            pvs[i] = self.calc_pv(image)
+            pvsum += pvs[i]
+            i += 1
+            if i % 2000 == 0:
+                print(i, "th picture")
+        pvs = pvs / pvsum
+        div = 0
+        i = 0
+        for image in self.images:
+            div += pds[i] * log(pds[i] / pvs[i])
+            i += 1
+        return div
+    
+    def save_div(self, steps):
+        div = np.zeros((len(steps)), dtype = np.float_)
+        for i in steps:
+            self.read_coef(str(i))
+            div[i] = self.calc_div()
+            print("Calculated ", i, "'th divergence!")
+        idx2numpy.convert_to_file(path + "Results/div")
