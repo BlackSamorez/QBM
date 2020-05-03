@@ -1,6 +1,7 @@
 import pandas as pd
 import idx2numpy
 import numpy as np
+import matplotlib as plt
 from math import *
 from dwave.system import LeapHybridSampler, EmbeddingComposite, DWaveSampler, AutoEmbeddingComposite
 import json
@@ -23,6 +24,7 @@ class QBM:
         self.t_step = 1000
         self.stepsize = 0.1
         self.path = ""
+        self.mute = True
 
         self.hidlen = hidlen    #handling indexes
         self.vislen = vislen
@@ -210,7 +212,7 @@ class QBM:
         top_prob = [0] * 3
         self.top = [0] * 3
         for i in range(self.outlen):
-            if self.prob[i] > top_prob[0]:
+            if self.prob[i] >= top_prob[0]:
                 self.top[2] = self.top[1]
                 top_prob[2] = top_prob[1]
                 self.top[1] = self.top[0]
@@ -218,27 +220,29 @@ class QBM:
                 self.top[0] = i + 1
                 top_prob[0] = self.prob[i]
             else:
-                if self.prob[i] > top_prob[1]:
+                if self.prob[i] >= top_prob[1]:
                     self.top[2] = self.top[1]
                     top_prob[2] = top_prob[1]
                     self.top[1] = i + 1
                     top_prob[1] = self.prob[i]
                 else:
-                    if self.prob[i] > top_prob[2]:
+                    if self.prob[i] >= top_prob[2]:
                         self.top[2] = i + 1
                         top_prob[2] = self.prob[i]
         for i in range(self.outlen):
             if self.image[-i - 1] == 1:
                 self.expected = i
-        self.expected = 26 - self.expected
+        self.expected = self.outlen - self.expected
 
 
     def calc_single_unfixed(self):
-        print("Response processing has begun:")
+        if not self.mute:
+            print("Response processing has begun:")
         self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
         responses = self.data.transpose()
         self.single_unfixed = responses.dot(self.data_occ / self.datan)
-        print("Response processing has finished")
+        if not self.mute:
+            print("Response processing has finished")
 
     def calc_double_unfixed(self):
         self.calc_single_unfixed()
@@ -257,13 +261,11 @@ class QBM:
             self.chosen_images += [self.images[i]]    
 
     def calc_sigma_v(self, v, th = True):
-        state = np.zeros((self.vislen + self.hidlen), dtype = np.float_)
+        state = np.ones((self.vislen + self.hidlen), dtype = np.float_)
         for i in range(self.vislen):
             state[self.hidlen + i] = v[i]
-        b = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
+        b_eff = np.zeros(self.vislen + self.hidlen, dtype = np.float_)
         b_eff = self.coef.dot(state)
-        for i in range(self.hidlen):
-            b_eff[i] += self.coef[i][i]
         if th:
             b_eff = np.tanh(b_eff)
         return b_eff
@@ -276,7 +278,8 @@ class QBM:
 
 
     def calc_double_fixed(self):
-        print("Dataset processing has begun:")
+        if not self.mute:
+            print("Dataset processing has begun:")
         self.double_fixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
         temp = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
         schet = 0
@@ -285,24 +288,24 @@ class QBM:
             for i in range(self.vislen):
                 vp[i] = v[i]
             if schet % 4000 == 0:
-                print("Image: ", schet, " out of ", len(self.chosen_images) , " processed")
+                if not self.mute:
+                    print("Image: ", schet, " out of ", len(self.chosen_images) , " processed")
             schet += 1
             sigma_v = self.calc_sigma_v(v)
             for i in range(self.hidlen):
                 for j in range(self.vislen):
                     temp[i][self.hidlen + j] += sigma_v[i] * vp[j]
 
-        for i in range(self.hidlen + self.vislen):
-            for j in range(self.hidlen + self.vislen):
-                temp[i][j] = temp[i][j] / len(self.chosen_images)
+        temp = temp / len(self.chosen_images)
         self.calc_single_fixed()
         for i in range(self.hidlen):
             temp[i][i] = self.single_fixed[i]
         for i in range(self.vislen):
         	temp[self.hidlen + i][self.hidlen + i] = self.mean_single[i]
         for pair in self.cmap:
-            self.double_unfixed[pair[0]][pair[1]] = temp[pair[0]][pair[1]]
-        print("Dataset processing has finished")
+            self.double_fixed[pair[0]][pair[1]] = temp[pair[0]][pair[1]]
+        if not self.mute:
+            print("Dataset processing has finished")
 
     def change_coef(self):
         self.delta = (self.double_fixed - self.double_unfixed) * self.stepsize
@@ -316,7 +319,8 @@ class QBM:
         if not self.sep:
             self.run(self.t_step)
             self.fetch_answer()
-            print("Got full respose, n = ", self.t_step)
+            if not self.mute:
+                print("Got full respose, n = ", self.t_step)
         else:
             self.run(1)
             self.fetch_answer()
@@ -324,13 +328,16 @@ class QBM:
                 self.run(1)
                 self.add_answer()
                 if (i + 2) % 10 == 0:
-                    print("Got respose ", i + 2, " out of", self.t_step)
+                    if not self.mute:
+                        print("Got respose ", i + 2, " out of", self.t_step)
         self.save_answer(str(step))
         self.calc_double_unfixed()
         self.choose_images(len(self.images))
         self.calc_double_fixed()
         self.change_coef()
         self.save_coef(str(int(step) + 1))
+        div = self.calc_div()
+        print("Calculated ", step, "th divergence:", div)
         print("Step " + str(step) + " complete!")
 
     def make_steps(self, n, stepsize = 0.1):
@@ -362,8 +369,8 @@ class QBM:
             pvs[i] = self.calc_pv(image)
             pvsum += pvs[i]
             i += 1
-            if i % 2000 == 0:
-                print(i, "th picture")
+            '''if i % 2000 == 0:
+                print(i, "th picture")'''
         pvs = pvs / pvsum
         div = 0
         i = 0
@@ -373,9 +380,9 @@ class QBM:
         return div
     
     def save_div(self, steps):
-        div = np.zeros((len(steps)), dtype = np.float_)
-        for i in steps:
+        div = np.zeros((steps), dtype = np.float_)
+        for i in range(steps):
             self.read_coef(str(i))
             div[i] = self.calc_div()
-            print("Calculated ", i, "'th divergence!")
-        idx2numpy.convert_to_file(path + "Results/div")
+            print("Calculated ", i, "th divergence:", div[i])
+        idx2numpy.convert_to_file(self.path + "Results/div", div)
