@@ -10,6 +10,7 @@ import random
 import hybrid
 from neal import SimulatedAnnealingSampler
 import matplotlib.pyplot as plt
+import copy
 
 
 class QBM:
@@ -51,8 +52,7 @@ class QBM:
         self.top = [0] * 3
         self.expected = 0
 
-        self.image = []    #images from dataset
-        self.images = []
+        self.images = []  #images from dataset
         self.label = 0
         self.labels = []
         self.chosen_images = []
@@ -89,10 +89,6 @@ class QBM:
             self.images = idx2numpy.convert_from_file(self.path + 'Data/test')
         for i in range(self.hidlen + self.vislen):
             self.index += [i]
-
-
-    def read_image(self, n):
-        self.image = self.images[n]
 
     '''def read_tests(self):
         self.mean_single = idx2numpy.convert_from_file("../Data/tests/single")
@@ -139,14 +135,19 @@ class QBM:
     def fix_v(self, i, val): #fix visible layer qubit
         self.bqm.fix_variable(self.vind[i], val)
 
-    def fix_image(self): #fix image into bqm
-        for i in range(self.vislen - self.outlen):
-            self.bqm.fix_variable(i + self.hidlen, self.image[i])
+    def fix_image(self, v, out = True): #fix image into bqm
+        if out:
+            ch = self.vislen
+        else:
+            ch = self.viseln - self.outlen
+        for i in range(ch):
+            self.bqm.fix_variable(i + self.hidlen, v[i])
         self.index = []
         for i in range(self.hidlen):
             self.index += [i]
-        for i in range(self.outlen):
-            self.index += [self.hidlen + self.vislen - self.outlen + i]
+        if not out:
+            for i in range(self.outlen):
+                self.index += [self.hidlen + self.vislen - self.outlen + i]
 
     '''def fix_output(self, n): #fix output (0-9)
         for i in range(self.outlen):
@@ -217,24 +218,25 @@ class QBM:
         self.prob = self.prob / np.sum(self.prob)
 
 
-    def calc_single_unfixed(self):
+    '''def calc_single_unfixed(self):
         if not self.mute:
             print("Response processing has begun:")
         self.single_unfixed = np.zeros(self.hidlen + self.vislen, dtype = np.float_)
         responses = self.answer.transpose()
         self.single_unfixed = responses.dot(self.prob)
         if not self.mute:
-            print("Response processing has finished")
+            print("Response processing has finished")'''
 
     def calc_double_unfixed(self):
-        self.calc_single_unfixed()
+        #self.calc_single_unfixed()
         self.double_unfixed = np.zeros((self.hidlen + self.vislen, self.hidlen + self.vislen), dtype = np.float_)
 
         for pair in self.cmap:
             for k in range(self.answerlen):
-                self.double_unfixed[pair[0]][pair[1]] += self.prob[k] * self.answer[k][pair[0]] * self.answer[k][pair[1]]
-            if pair[0] == pair[1]:
-                self.double_unfixed[pair[0]][pair[0]] = self.single_unfixed[pair[0]]
+                if pair[0] != pair[1]:
+                    self.double_unfixed[pair[0]][pair[1]] += self.prob[k] * self.answer[k][pair[0]] * self.answer[k][pair[1]]
+                else:
+                    self.double_unfixed[pair[0]][pair[0]] += self.prob[k] * self.answer[k][pair[0]]
 
     def choose_images(self, n = "who gives a fuck"):
         self.chosen_images = []
@@ -375,43 +377,34 @@ class QBM:
             print("Calculated ", i, "th divergence:", div[i])
         idx2numpy.convert_to_file(self.path + "Results/div", div)
 
-    def find_answer(self):
-        psum = 0
-        prob = np.zeros((self.outlen), dtype = np.float_)
-        for i in range(self.outlen):
-            vis = np.ones((self.vislen), dtype = np.int8) * -1
-            for j in range(self.vislen - self.outlen):
-                vis[j] = self.image[j]
-            vis[self.vislen - self.outlen + i] = 1
-            prob[i] = self.calc_pv(vis)
-            psum += prob[i]
-        prob = prob / psum
-        return prob
+    def find_answer(self, n):
+        mostan = np.zeros((n, self.outlen), dtype = np.float_)
+        if n > len(self.images):
+            n = len(self.images)
+        for im in range(n):
+            for qu in range(self.outlen):
+                out = np.ones((self.outlen), dtype = np.int32) * -1
+                string = copy.deepcopy(self.images[im])
+                for i in range(self.outlen):
+                    if i != qu:
+                        string[self.vislen - self.outlen + i] = -1
+                    else:
+                        string[self.vislen - self.outlen + i] = 1
+                self.make_bqm()
+                self.fix_image(string)
+                self.run_test(self.t_step)
+                top = 1
+                for datum in self.response.data(fields = ['sample', 'energy', 'num_occurrences'], sorted_by = 'energy'):
+                    if top:
+                        energy = datum.energy
+                        top = 0
+                mostan[im][qu] = e ** (-energy)
+            mostan[im] = mostan[im] / np.sum(mostan[im])
+            print(mostan[im])
+        return mostan
 
-    def analyze_answer(self):
-        prob = self.find_answer()
-        top_prob = [0] * 3
-        self.top = [0] * 3
-        for i in range(self.outlen):
-            if prob[i] >= top_prob[0]:
-                self.top[2] = self.top[1]
-                top_prob[2] = top_prob[1]
-                self.top[1] = self.top[0]
-                top_prob[1] = top_prob[0]
-                self.top[0] = i
-                top_prob[0] = prob[i]
-            else:
-                if prob[i] >= top_prob[1]:
-                    self.top[2] = self.top[1]
-                    top_prob[2] = top_prob[1]
-                    self.top[1] = i
-                    top_prob[1] = prob[i]
-                else:
-                    if prob[i] >= top_prob[2]:
-                        self.top[2] = i
-                        top_prob[2] = prob[i]
-        for i in range(self.outlen):
-            if self.image[-i - 1] == 1:
-                self.expected = i + 1
-        self.expected = self.outlen - self.expected
+
+
+                
+        
 

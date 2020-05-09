@@ -1,0 +1,8 @@
+\include{head}
+
+\begin{document}
+
+Сэмплим на dwave (или на симуляции) \implies получаем набор результатов $\:\:a_1 ... a_n$ \implies для каждого результата считаем $\:\:p_i = e^{-E(a_i)}$ , нормируем их на 1 $\implies$ \\
+ для каждой связи вычисляем $double\:\:unfixed_{i, j} = \sum\limits_{k = 1}^{n} a_{k, i} * a_{k, j} * p_k$ при $i \neq j$ и $double\:\:unfixed_{i, j} = \sum\limits_{k = 1}^{n} a_{k, i} * p_k$ при $i = j$ \implies считаем $double\:\:fixed_{i, j}$, где на диагонали в скрытом слое $\sum th(b_{eff}(v)) * prob(v)$, на диагонали в открытом слое усредненные по датасету значения кубитов, а на связях скрытого и открытого $double\:\:fixed_{i, j} = \sum th(b_{eff}(v)_j) * prob(v) * v_i$ \implies считаем   $\:\:\delta = (double\:\:fixed - double\:\:unfixed) \cdot stepsize$ \implies $coef = coef - \delta$
+
+\end{document}
